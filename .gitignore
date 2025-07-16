@@ -1,0 +1,40 @@
+# Byte-code files
+*.pyc
+__pycache__/
+
+# Virtual environment
+.venv/
+env/
+venv/
+
+# Environment variables
+.env
+*.env
+.env.*
+
+# Database files
+*.sqlite3
+*.db
+
+# IDE-specific files (e.g., VS Code)
+.vscode/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Logs
+*.log
+
+# Test and coverage reports
+.pytest_cache/
+htmlcov/
+.coverage
+
+# PyInstaller (if used)
+*.spec
+*.manifest
+
+# Other temporary files
+*.tmp
