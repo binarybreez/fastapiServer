@@ -6,6 +6,7 @@ import logging
 import os
 from svix.webhooks import Webhook
 from dotenv import load_dotenv
+from app.db import db
 
 load_dotenv()
 
@@ -34,6 +35,39 @@ async def handle_user_created(request: Request):
             raise HTTPException(
                 status_code=400, detail="User ID not found in webhook data"
             )
+        email = next((email["email_address"] for email in user_data.get("email_addresses", []) 
+                    if email["id"] == user_data.get("primary_email_address_id")), None)
+        print(f"User email: {email}")
+
+        if not user_id or not email:
+            raise HTTPException(
+                status_code=400, 
+                detail="Missing required user data"
+            )
+
+        # Create minimal user document
+        user_doc = {
+            "clerk_id": user_id,
+            "email": email,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+            "profile": {
+                "personal": {
+                    "first_name": user_data.get("first_name", ""),
+                    "last_name": user_data.get("last_name", ""),
+                }
+            }
+        }
+
+        # Insert with conflict check
+        existing_user = await db.users.find_one({"clerk_id": user_id})
+        if existing_user:
+            logging.info(f"User {user_id} already exists")
+            return {"status": "exists"}
+
+        await db.users.insert_one(user_doc)
+        logging.info(f"Created skeleton user for {user_id}")
+        return {"status": "success"}
 
     except Exception as e:
         logging.error(f"Webhook verification failed: {e}")

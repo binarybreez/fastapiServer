@@ -4,7 +4,7 @@ from typing import List, Optional, Annotated
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from pydantic.functional_validators import AfterValidator
 from bson import ObjectId
-import re
+
 
 # Custom ObjectId validator
 def validate_object_id(value: str) -> str:
@@ -17,6 +17,8 @@ PyObjectId = Annotated[str, AfterValidator(validate_object_id)]
 class Role(str, Enum):
     JOB_SEEKER = "job_seeker"
     EMPLOYER = "employer"
+    UNASSIGNED = "unassigned"
+
 
 class Experience(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
