@@ -3,6 +3,9 @@ import os
 from datetime import datetime
 from app.utils.parser import parse_resume
 from fastapi.responses import JSONResponse
+from app.controllers.user import update_user_profile_from_resume, UserCRUD
+from app.models.user import Role
+from app.db import db
 
 router = APIRouter()
 
@@ -11,7 +14,7 @@ router = APIRouter()
 async def upload_resume(
     clerk_id: str = Form(...),
     file: UploadFile = File(...),
-    metadata: str = Form(None),  # Optional additional data
+    user_role: str = Form(...),  # Optional additional data
 ):
     try:
         # Validate file type
@@ -44,11 +47,12 @@ async def upload_resume(
 
         # Update user profile with resume info
         resume_data = await parse_resume(file_path)
-        # resume_data = {
-        #     "file_key": file_path,
-        #     "parsed_data": {"status": "pending_parsing"},  # Will be updated by parser
-        #     "last_updated": datetime.utcnow(),
-        # }
+        user_crud = UserCRUD(db.users)
+        print(user_role)
+        
+        response = await update_user_profile_from_resume(user_crud,clerk_id,resume_data,user_role)
+        print(response)
+
 
 
         return JSONResponse(
@@ -56,7 +60,6 @@ async def upload_resume(
             content={
                 "message": "Resume uploaded successfully",
                 "file_name": file_name,
-                "metadata": metadata,
                 "result": resume_data,  # Include parsed data
             },
         )

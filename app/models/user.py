@@ -67,7 +67,7 @@ class JobSeekerCreate(BaseUser):
     resume: Optional[Resume] = None
 
 class EmployerCreate(BaseUser):
-    company_name: str
+    company_name: Optional[str] = Field(None,description="Required for employers, optional for job seekers")
     company_logo: Optional[str] = None
     company_website: Optional[str] = Field(None, pattern=r"https?://.+")
 
