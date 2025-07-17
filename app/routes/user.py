@@ -43,7 +43,7 @@ async def upload_resume(
             buffer.write(content)
 
         # Update user profile with resume info
-        resume_data = parse_resume(file_path)
+        resume_data = await parse_resume(file_path)
         # resume_data = {
         #     "file_key": file_path,
         #     "parsed_data": {"status": "pending_parsing"},  # Will be updated by parser

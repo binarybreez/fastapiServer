@@ -1,86 +1,119 @@
 import PyPDF2
-import spacy
-from pathlib import Path
-from typing import Dict, List
 import re
 from datetime import datetime
+import json
+from google import genai
+from dotenv import load_dotenv
 
-# Load spaCy model once at startup
-nlp = spacy.load("en_core_web_sm")
+load_dotenv()
 
-def parse_resume(file_path: str) -> Dict:
-    """
-    Parse resume PDF from file path and extract structured data
-    
-    Args:
-        file_path: Path to the PDF file (e.g., "public/resumes/user_123.pdf")
-        
-    Returns:
-        Dictionary with parsed data (skills, experience, education, etc.)
-    """
+
+async def parse_resume(file_path: str):
+    """Parse resume PDF and extract structured information using spaCy"""
     try:
-        # 1. Verify file exists
-        if not Path(file_path).exists():
-            raise FileNotFoundError(f"Resume not found at {file_path}")
-            
-        # 2. Extract text
         text = extract_text_from_pdf(file_path)
-        
-        # 3. Process with NLP
-        doc = nlp(text)
-        
-        # 4. Extract structured data
+        clean_text = clean_resume_text(text)
+        result = await get_info_from_resume(clean_text)
+        return result
+
         return {
-            "skills": extract_skills(doc),
-            "experience": extract_experience(text),
-            "education": extract_education(text),
-            "raw_text": text[:5000],  # Store first 5000 chars
+            "contact": "",
+            "skills": "",
+            "experience": "",
+            "education": "",
             "file_path": file_path,
-            "parsed_at": datetime.utcnow().isoformat()
+            "parsed_at": datetime.utcnow().isoformat(),
         }
-        
     except Exception as e:
         raise RuntimeError(f"Failed to parse resume: {str(e)}")
 
+
 def extract_text_from_pdf(file_path: str) -> str:
-    """Extract and clean text from PDF file"""
+    """Extract text from PDF with improved line handling"""
     with open(file_path, "rb") as f:
         reader = PyPDF2.PdfReader(f)
-        text = " ".join(
-            page.extract_text() or "" 
-            for page in reader.pages
-        )
-        return re.sub(r'\s+', ' ', text).strip()
+        text = ""
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                # Preserve line breaks for better section detection
+                text += page_text + "\n"
+        return text
 
-def extract_skills(doc) -> List[str]:
-    """Extract skills using spaCy NER and custom patterns"""
-    skills_ruler = nlp.add_pipe("entity_ruler", before="ner")
-    skills_ruler.add_patterns([
-        {"label": "SKILL", "pattern": [{"LOWER": "python"}]},
-        {"label": "SKILL", "pattern": [{"LOWER": "fastapi"}]},
-        # Add more skill patterns
-    ])
-    return list(set(ent.text for ent in doc.ents if ent.label_ == "SKILL"))
 
-def extract_experience(text: str) -> List[Dict]:
-    """Extract work experience using regex"""
-    experiences = []
-    # Simple regex pattern - customize based on your needs
-    for match in re.finditer(
-        r'(?P<title>[A-Z][a-z]+(?: [A-Z][a-z]+)*)'
-        r'(?: at |, )(?P<company>[A-Z][a-zA-Z& ]+)',
-        text
-    ):
-        experiences.append({
-            "title": match.group('title'),
-            "company": match.group('company')
-        })
-    return experiences
+def clean_resume_text(text: str) -> str:
+    """Clean and normalize resume text while preserving structure"""
+    # Normalize whitespace but keep line breaks
+    text = re.sub(r"[ \t]+", " ", text)
+    # Normalize bullet points
+    text = re.sub(r"[•*\-]\s*", " • ", text)
+    # Remove extra empty lines
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
-def extract_education(text: str) -> List[str]:
-    """Extract education information"""
-    education_keywords = ["university", "college", "institute", "bachelor", "master"]
-    return [
-        line.strip() for line in text.split('\n')
-        if any(keyword in line.lower() for keyword in education_keywords)
-    ]
+
+async def get_info_from_resume(text: str):
+    client = genai.Client()
+    prompt = f"""
+You are a strict JSON extractor.
+
+Your task is to extract the following information from a resume and return it in **this exact JSON format**.
+
+DO NOT add explanations or additional text. ONLY return valid JSON.
+
+Here is the expected format:
+
+{{
+  "Full Name": "John Doe",
+  "Email": "john.doe@example.com",
+  "Phone Number": "+1 123-456-7890",
+  "LinkedIn Profile": "https://linkedin.com/in/johndoe",
+  "Skills": ["Python", "React", "Machine Learning", "SQL"],
+  "Education": [
+    {{
+      "Degree": "B.Tech in Computer Science",
+      "University": "IIT Delhi",
+      "Year": "2021"
+    }}
+  ],
+  "Experience": [
+    {{
+      "Company": "TCS",
+      "Role": "Software Developer",
+      "Duration": "Jan 2022 - Present",
+      "Description": "Worked on backend APIs in Python and Node.js."
+    }}
+  ],
+  "Certifications": ["AWS Certified Developer"],
+  "Projects": [
+    {{
+      "Name": "Resume Parser",
+      "Description": "Built an intelligent resume parser using Gemini API."
+    }}
+  ]
+}}
+
+Now extract the data from the following resume and match this format:
+
+\"\"\"
+{text}
+\"\"\"
+"""
+    response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+    cleaned_response =  clean_gemini_response(response.text)
+    return cleaned_response
+
+
+def clean_gemini_response(raw_result):
+    # Step 1: Remove markdown code fences ```json ... ```
+    cleaned = re.sub(r"^```json\n|```$", "", raw_result.strip())
+
+    # Step 2: Unescape any escaped characters
+    try:
+        parsed_json = json.loads(cleaned)
+        return parsed_json
+    except json.JSONDecodeError:
+        # Fallback: Sometimes it's double-encoded — try unescaping
+        cleaned = cleaned.encode('utf-8').decode('unicode_escape')
+        parsed_json = json.loads(cleaned)
+        return parsed_json
