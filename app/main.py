@@ -2,7 +2,8 @@ from fastapi import FastAPI, Depends, HTTPException
 from app.db import db
 from app.models.user import UserProfile
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import auth
+from app.routes import auth, user
+from fastapi.staticfiles import StaticFiles
 
 
 app = FastAPI()
@@ -14,6 +15,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.mount("/public", StaticFiles(directory="public"), name="public")
 
 @app.on_event("startup")
 async def startup():
@@ -26,6 +28,7 @@ async def shutdown():
 
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(user.router, prefix="/api/users")
 
 
 @app.get("/", response_model=dict)
