@@ -21,21 +21,82 @@ class UserCRUD:
     def __init__(self, db_collection):
         self.collection = db_collection
 
-    async def create_user(self, user_data: BaseModel) -> UserProfile:
-        """Create a new user profile"""
-        existing_user = await self.collection.find_one({"clerk_id": user_data.clerk_id})
-        if existing_user:
-            raise HTTPException(status_code=400, detail="User already exists")
+    async def update_user_profile(
+    self,
+    clerk_id: str,
+    update_data: dict,
+    role: Optional[Role] = None
+) -> UserProfile:
         
-        user_dict = user_data.model_dump()
-        user_dict["created_at"] = datetime.utcnow()
-        user_dict["updated_at"] = datetime.utcnow()
+        existing_user = await self.collection.find_one({"clerk_id": clerk_id})
+        if not existing_user:
+            raise HTTPException(status_code=404, detail="User not found")
         
-        result = await self.collection.insert_one(user_dict)
-        if not result.inserted_id:
-            raise HTTPException(status_code=500, detail="Failed to create user")
+        # 2. Determine role (use existing if not provided)
+        current_role = Role(existing_user.get("role", Role.UNASSIGNED))
+        if role and current_role != role:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot update fields for {role} role when user is {current_role}"
+            )
+        effective_role = role or current_role
         
-        return await self.get_user_by_id(str(result.inserted_id))
+        # 3. Prepare update document with role-specific handling
+        update_doc = {
+            "$set": {
+                "updated_at": datetime.utcnow()
+            }
+        }
+        
+        # Common fields all roles can update
+        common_fields = [
+            "first_name", "last_name", "phone", "location", 
+            "willing_to_relocate", "social_links"
+        ]
+        
+        # Role-specific field validation
+        if effective_role == Role.JOB_SEEKER:
+            allowed_fields = common_fields + [
+                "skills", "experience", "education", "resume"
+            ]
+            # Ensure job seekers can't set employer fields
+            if "company_name" in update_data:
+                update_data.pop("company_name")
+        
+        elif effective_role == Role.EMPLOYER:
+            allowed_fields = common_fields + [
+                "company_name", "company_logo", "company_website"
+            ]
+            # Ensure employers can't set job seeker fields
+            for field in ["skills", "experience", "education", "resume"]:
+                if field in update_data:
+                    update_data.pop(field)
+        
+        else:  # UNASSIGNED
+            allowed_fields = common_fields
+        
+        # Filter update data to only allowed fields
+        filtered_updates = {
+            k: v for k, v in update_data.items() 
+            if k in allowed_fields
+        }
+        
+        # Add to update document
+        update_doc["$set"].update(filtered_updates)
+        
+        # 4. Perform the update
+        result = await self.collection.update_one(
+            {"clerk_id": clerk_id},
+            update_doc
+        )
+        
+        if result.modified_count == 0:
+            raise HTTPException(
+                status_code=304,
+                detail="No changes made or data validation failed"
+            )
+        
+        return await self.get_user_by_clerk_id(clerk_id)
 
     async def get_user_by_id(self, user_id: PyObjectId) -> UserProfile:
         """Get a user by their ID"""
