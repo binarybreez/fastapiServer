@@ -1,8 +1,7 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI
 from app.db import db
-from app.models.user import UserProfile
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import auth, user , job
+from app.routes import auth, user, job, swipe
 from fastapi.staticfiles import StaticFiles
 
 
@@ -17,6 +16,7 @@ app.add_middleware(
 
 app.mount("/public", StaticFiles(directory="public"), name="public")
 
+
 @app.on_event("startup")
 async def startup():
     await db.connect()
@@ -30,6 +30,7 @@ async def shutdown():
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(user.router, prefix="/api/users")
 app.include_router(job.router, prefix="/api/jobs")
+app.include_router(swipe.router, prefix="/api/swipes")
 
 
 @app.get("/", response_model=dict)

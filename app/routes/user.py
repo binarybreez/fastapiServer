@@ -325,14 +325,12 @@ async def delete_resume(
 async def update_user_profile(
     clerk_id: str,
     update_data: dict,
-    role: Optional[Role] = None,
     crud: UserCRUD = Depends(get_user_crud)
 ):
     try:
-        return await crud.update_user_profile(
+        return await crud.update_user(
             clerk_id=clerk_id,
             update_data=update_data,
-            role=role
         )
     except HTTPException as e:
         raise e
