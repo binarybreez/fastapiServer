@@ -22,7 +22,7 @@ class Location(BaseModel):
     state: Optional[str] = None
     country: str
     remote: bool = False
-    coordinates: Optional[tuple[float, float]] = None
+    # coordinates: Optional[tuple[float, float]] = None
 
 class JobPosting(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)

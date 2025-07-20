@@ -29,6 +29,12 @@ async def create_job_posting(
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
+@router.get("/job", response_model=List[JobPosting])
+async def get_jobs(crud:JobCRUD = Depends(get_job_crud)):
+    try:
+        return await crud.get_active_jobs()
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 @router.get("/", response_model=List[JobPosting])
 async def search_jobs(

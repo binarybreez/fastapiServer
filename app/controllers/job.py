@@ -32,6 +32,7 @@ class JobCRUD:
         job = await self.collection.find_one({"_id": ObjectId(job_id)})
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
+        job["_id"] = str(job["_id"])
         return JobPosting(**job)
 
     async def get_jobs_by_employer(self, employer_id: str) -> List[JobPosting]:
@@ -44,7 +45,12 @@ class JobCRUD:
         cursor = self.collection.find(
             {"is_active": True, "expires_at": {"$gt": datetime.utcnow()}}
         ).skip(skip).limit(limit)
-        return [JobPosting(**job) async for job in cursor]
+        jobs = []
+        async for job in cursor:
+            job["_id"] = str(job["_id"])  # ✅ Convert ObjectId to string
+            jobs.append(JobPosting(**job))
+
+        return jobs
 
     async def search_jobs(
         self,
