@@ -51,12 +51,6 @@ async def handle_user_created(request: Request):
             "email": email,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
-            "profile": {
-                "personal": {
-                    "first_name": user_data.get("first_name", ""),
-                    "last_name": user_data.get("last_name", ""),
-                }
-            }
         }
 
         # Insert with conflict check

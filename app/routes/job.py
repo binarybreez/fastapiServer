@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
+from fastapi import APIRouter, Body, Depends, HTTPException, status, Query, UploadFile, File
 from typing import List, Optional
 from datetime import datetime
 from bson import ObjectId
@@ -15,17 +15,18 @@ async def get_job_crud():
 
 
 # Job Posting Endpoints
-@router.post("/", response_model=JobPosting, status_code=status.HTTP_201_CREATED)
+@router.post("/{employer_id}", response_model=JobPosting, status_code=status.HTTP_201_CREATED)
 async def create_job_posting(
-    job_data: JobPosting,
-    employer_id: str = Query(..., description="Authenticated employer's Clerk ID"),
+    employer_id: str,
+    job_data:str = Body(...,embed=False),
     crud: JobCRUD = Depends(get_job_crud),
 ):
     """
     Create a new job posting
     """
     try:
-        return await crud.create_job(job_data)
+        print(employer_id)
+        return await crud.create_job(job_data,employer_id)
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 

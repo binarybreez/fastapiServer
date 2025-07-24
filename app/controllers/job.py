@@ -10,18 +10,22 @@ from app.models.job import (
     Location,
     PyObjectId
 )
+from app.utils.parser import extract_job_data
 
 class JobCRUD:
     def __init__(self, db_collection):
         self.collection = db_collection
 
-    async def create_job(self, job_data: JobPosting) -> JobPosting:
+    async def create_job(self, job_data: str, employer_id:str) -> JobPosting:
         """Create a new job posting"""
-        job_dict = job_data.model_dump()
-        job_dict["posted_at"] = datetime.utcnow()
-        job_dict["expires_at"] = datetime.utcnow() + timedelta(days=30)
+        response = await extract_job_data(job_data)
+        # job_dict = response.model_dump()
+        response["employer_id"] = employer_id
+        response["posted_at"] = datetime.utcnow()
+        response["expires_at"] = datetime.utcnow() + timedelta(days=30)
+        print(response)
         
-        result = await self.collection.insert_one(job_dict)
+        result = await self.collection.insert_one(response)
         if not result.inserted_id:
             raise HTTPException(status_code=500, detail="Failed to create job posting")
         
@@ -196,3 +200,4 @@ class JobCRUD:
                 detail="Job, application not found or not authorized"
             )
         return True
+    

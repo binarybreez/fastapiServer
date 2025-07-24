@@ -18,7 +18,7 @@ class SalaryRange(BaseModel):
     is_public: bool = True
 
 class Location(BaseModel):
-    city: str
+    city: str = Field(default_factory=str)
     state: Optional[str] = None
     country: str
     remote: bool = False

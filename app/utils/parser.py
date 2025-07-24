@@ -5,6 +5,8 @@ import json
 from google import genai
 from dotenv import load_dotenv
 
+client = genai.Client()
+
 load_dotenv()
 
 
@@ -16,14 +18,6 @@ async def parse_resume(file_path: str):
         result = await get_info_from_resume(clean_text)
         return result
 
-        return {
-            "contact": "",
-            "skills": "",
-            "experience": "",
-            "education": "",
-            "file_path": file_path,
-            "parsed_at": datetime.utcnow().isoformat(),
-        }
     except Exception as e:
         raise RuntimeError(f"Failed to parse resume: {str(e)}")
 
@@ -53,7 +47,6 @@ def clean_resume_text(text: str) -> str:
 
 
 async def get_info_from_resume(text: str):
-    client = genai.Client()
     prompt = f"""
 You are a strict JSON extractor.
 
@@ -81,14 +74,14 @@ Here is the expected format:
       "Company": "TCS",
       "Role": "Software Developer",
       "Duration": "Jan 2022 - Present",
-      "Description": "Worked on backend APIs in Python and Node.js."
+      "Description": "Worked on backend APIs in Python and Node.js."   #summary in 1 or 2 line
     }}
   ],
   "Certifications": ["AWS Certified Developer"],
   "Projects": [
     {{
       "Name": "Resume Parser",
-      "Description": "Built an intelligent resume parser using Gemini API."
+      "Description": "Built an intelligent resume parser using Gemini API."   #summary in 1 or 2 line
     }}
   ]
 }}
@@ -117,3 +110,47 @@ def clean_gemini_response(raw_result):
         cleaned = cleaned.encode('utf-8').decode('unicode_escape')
         parsed_json = json.loads(cleaned)
         return parsed_json
+
+async def extract_job_data(job_data:str):
+    prompt = f"""
+You are a helpful assistant for a hiring platform. An employer has provided a short, free-text job description. 
+
+Your task is to extract all relevant details from that description and return the data in this **exact structured JSON format**.
+
+Return ONLY a valid JSON object. DO NOT include explanations or wrap the result in markdown (like ```json).
+
+Use the following format:
+
+{{
+  "title": "Software Engineer",
+  "description": "...",  # summary of responsibilities
+  "requirements": ["Bachelor's degree in CS", "3+ years experience", ...],
+  "responsibilities": ["Build scalable APIs", "Collaborate with team", ...],
+  "employment_type": "full_time",  # one of: full_time, part_time, contract, internship
+  "salary": {{
+    "min": 80000, # 0 for none
+    "max": 120000,
+    "currency": "USD",
+    "is_public": true
+  }},
+  "location": {{
+    "city": "San Francisco", # "" for nothing
+    "state": "CA", # "" for nothing
+    "country": "USA",# "" for nothing
+    "remote": false
+  }},
+  "skills_required": ["Python", "FastAPI", "MongoDB"],
+  "benefits": ["Health Insurance", "401k", "Remote Work"],
+  "is_active": true,
+}}
+
+Here is the employer’s job description:
+
+\"\"\"
+{job_data}
+\"\"\"
+
+Now extract and return the information as a JSON object using the format above.
+"""
+    response = client.models.generate_content(model="gemini-2.5-flash",contents=prompt)
+    return clean_gemini_response(response.text)
