@@ -9,7 +9,7 @@ router = APIRouter()
 
 
 async def get_swipe_crud():
-    yield SwipeCRUD(db.swipes)  # Assuming you have a 'swipes' collection
+    yield SwipeCRUD(db.swipes,db.jobs)  # Assuming you have a 'swipes' collection
 
 
 # Endpoints
@@ -28,6 +28,16 @@ async def create_swipe(
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
+@router.get("/like/{user_id}", response_model=List[dict])
+async def get_liked_jobs(
+    user_id: str,
+    crud: SwipeCRUD = Depends(get_swipe_crud),
+):
+    """Get jobs liked by a user"""
+    try:
+        return await crud.get_liked_jobs_by_user(user_id)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 @router.get("/matches", response_model=List[dict])
 async def get_matches(

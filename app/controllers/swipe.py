@@ -6,20 +6,22 @@ from bson import ObjectId
 
 
 class SwipeCRUD:
-    def __init__(self, db_collection):
-        self.collection = db_collection
+    def __init__(self, swipe_collection,jobs_collection):
+        self.collection = swipe_collection
+        self.job_collection = jobs_collection
 
     async def create_swipe(
         self, swiper_id: str, target_id: str, swipe_type: str  # "like" or "pass"
     ) -> dict:
         """Record a swipe action"""
+        job_object_id = ObjectId(target_id)
         swipe_data = {
-            "swiper_id": swiper_id,
-            "target_id": target_id,
-            "swipe_type": swipe_type,
-            "swiped_at": datetime.utcnow(),
-            "matched": False,
-        }
+        "user_id": swiper_id,                  # ✅ matches Mongo index
+        "job_id": job_object_id,          # ✅ stored as ObjectId
+        "swipe_type": swipe_type,
+        "swiped_at": datetime.utcnow(),
+        "matched": False,
+    }
 
         result = await self.collection.insert_one(swipe_data)
         if not result.inserted_id:
@@ -33,6 +35,26 @@ class SwipeCRUD:
             return await self.check_match(swiper_id, target_id)
         return {"status": "swipe_recorded"}
 
+    async def get_liked_jobs_by_user(self, clerk_id: str) -> list[dict]:
+        """Fetch full job postings liked by a user (via Clerk ID)"""
+        swipes_cursor = self.collection.find(
+            {"user_id": clerk_id, "swipe_type": "like"}
+        )
+
+        liked_jobs = []
+        async for swipe in swipes_cursor:
+            try:
+                job_id = ObjectId(swipe["job_id"])
+            except Exception:
+                continue  # skip invalid ids
+
+            job = await self.job_collection.find_one({"_id": job_id})
+            if job:
+                job["_id"] = str(job["_id"])  # convert ObjectId → str for JSON
+                liked_jobs.append(job)
+
+        return liked_jobs
+    
     async def check_match(self, user1_id: str, user2_id: str) -> dict:
         """Check if two users have liked each other"""
         mutual_swipe = await self.collection.find_one(

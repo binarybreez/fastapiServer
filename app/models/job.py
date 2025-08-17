@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import List, Optional, Annotated
 from pydantic import BaseModel, Field, ConfigDict
@@ -40,4 +40,6 @@ class JobPosting(BaseModel):
     benefits: List[str] = Field(default_factory=list)
     is_active: bool = True
     posted_at: datetime = Field(default_factory=datetime.utcnow)
-    expires_at: datetime = Field(default_factory=lambda: datetime.utcnow().timestamp() + 30*24*3600)
+expires_at: datetime = Field(
+    default_factory=lambda: datetime.utcnow() + timedelta(days=30)
+)
