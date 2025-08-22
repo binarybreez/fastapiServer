@@ -36,3 +36,7 @@ app.include_router(swipe.router, prefix="/api/swipes")
 @app.get("/", response_model=dict)
 async def read_root():
     return {"message": "Welcome to the Job Swipe API"}
+
+@app.get("/hi", response_model=dict)
+async def read_root():
+    return {"message": "Welcome to the Job Swipe API"}
