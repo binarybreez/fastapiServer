@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from app.db import db
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes import auth, user, job, swipe
-from fastapi.staticfiles import StaticFiles
+# from fastapi.staticfiles import StaticFiles
 
 
 app = FastAPI()
@@ -14,7 +14,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/public", StaticFiles(directory="public"), name="public")
+# app.mount("/public", StaticFiles(directory="public"), name="public")
 
 
 @app.on_event("startup")
