@@ -15,13 +15,23 @@ from app.models.user import (
 )
 from bson import ObjectId
 from typing import List, Optional
+import cloudinary
+import cloudinary.uploader
 
 
+
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET")
+)
 router = APIRouter()
 
+async def get_user_crud():
+    yield UserCRUD(db.users)
 
 @router.post("/upload")
-async def upload_resume(
+async def upload_cloud(
     clerk_id: str = Form(...),
     file: UploadFile = File(...),
     user_role: str = Form(...),  # Optional additional data
@@ -50,35 +60,45 @@ async def upload_resume(
         file_name = f"{clerk_id}_{datetime.now().timestamp()}{os.path.splitext(file.filename)[1]}"
         file_path = f"uploads/{file_name}"
 
+        # Ensure the uploads directory exists
         os.makedirs("uploads", exist_ok=True)
+
+        # Save the file locally temporarily
         with open(file_path, "wb") as buffer:
             content = await file.read()
             buffer.write(content)
 
-        # Update user profile with resume info
+        # Upload the file to Cloudinary
+        result = cloudinary.uploader.upload(
+            file_path,  # Upload from the local path
+            resource_type="auto",  # Since we're dealing with a non-image file
+            public_id=f"resumes/{clerk_id}_{int(datetime.now().timestamp())}",  # Optional: custom public ID
+        )
+
+        # Optional: Process the uploaded resume (e.g., parse resume data)
         resume_data = await parse_resume(file_path)
+
+        # Update user profile with resume data (e.g., extract from the resume)
         user_crud = UserCRUD(db.users)
-        print(user_role)
-        
-        response = await update_user_profile_from_resume(user_crud,clerk_id,resume_data,user_role)
-        print(response)
+        resume_url = result["secure_url"]
+        response = await update_user_profile_from_resume(user_crud, clerk_id,resume_url, resume_data, user_role)
+        # Remove the local file after uploading
+        os.remove(file_path)
 
-
-
+        # Return response with the Cloudinary URL and any parsed data
         return JSONResponse(
             status_code=200,
             content={
                 "message": "Resume uploaded successfully",
                 "file_name": file_name,
-                "result": resume_data,  # Include parsed data
+                "cloudinary_url": result["secure_url"],
+                "result": resume_data,  # Include parsed resume data
             },
         )
 
     except Exception as e:
+        # In case of any error, we return a detailed error message
         raise HTTPException(status_code=500, detail=str(e))
-    
-async def get_user_crud():
-    yield UserCRUD(db.users)
 
 # Get current user profile
 @router.get("/me", response_model=UserProfile)

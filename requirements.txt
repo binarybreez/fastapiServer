@@ -1,4 +1,4 @@
-clerk_backend_api==3.2.1
+clerk-backend-api
 fastapi==0.116.1
 ftfy==6.3.1
 motor==3.7.1
@@ -18,3 +18,4 @@ uvicorn
 aiofiles
 python-multipart==0.0.20
 email-validator==2.2.0
+cloudinary

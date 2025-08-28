@@ -275,8 +275,9 @@ class UserCRUD:
 async def update_user_profile_from_resume(
     crud: UserCRUD,
     clerk_id: str,
+    resume_url: str,
     parsed_resume: Dict,
-    user_role:str = "job_seeker"
+    user_role:str = "job_seeker",
 ):
     """
     Updated version with proper date parsing
@@ -362,6 +363,8 @@ async def update_user_profile_from_resume(
                 discarded_data["unused_experience_fields"].extend(unused_exp_fields)
         
         update_data["experience"] = experiences
+        update_data["resume"] = {"resume_url": resume_url}
+
         discarded_data["unused_fields"].append("Experience")
 
     # 4. Education - with proper year handling

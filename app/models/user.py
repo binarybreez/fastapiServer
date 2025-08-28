@@ -47,8 +47,7 @@ class SocialLinks(BaseModel):
     portfolio: Optional[str] = None
 
 class Resume(BaseModel):
-    file_key: str
-    parsed_data: dict
+    resume_url: str
     last_updated: datetime = Field(default_factory=datetime.utcnow)
 
 class BaseUser(BaseModel):
