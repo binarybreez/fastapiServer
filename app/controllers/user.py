@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict, List
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 from bson import ObjectId
 from fastapi import HTTPException
@@ -15,25 +15,141 @@ from app.models.user import (
     EmployerCreate
 )
 import re
+import logging
 from dateutil.parser import parse
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 class UserCRUD:
     def __init__(self, db_collection):
         self.collection = db_collection
 
+    def _normalize_role(self, role: str) -> str:
+        """
+        Normalize role values to match the expected enum values
+        """
+        if not role:
+            return "job_seeker"
+        
+        # Convert to lowercase and replace spaces with underscores
+        normalized = role.lower().replace(' ', '_').replace('-', '_')
+        
+        # Handle common variations
+        role_mappings = {
+            'jobseeker': 'job_seeker',
+            'job-seeker': 'job_seeker',
+            'job seeker': 'job_seeker',
+            'seeker': 'job_seeker',
+            'candidate': 'job_seeker',
+            'recruiter': 'employer',
+            'hr': 'employer',
+            'company': 'employer',
+            'hiring_manager': 'employer',
+            'hiring-manager': 'employer',
+            'hiring manager': 'employer'
+        }
+        
+        return role_mappings.get(normalized, normalized)
+
+    async def get_user_by_clerk_id_raw(self, clerk_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get raw user data by clerk_id without Pydantic validation
+        """
+        try:
+            raw_user = await self.collection.find_one({"clerk_id": clerk_id})
+            if raw_user:
+                # Convert ObjectId to string for JSON serialization
+                raw_user["_id"] = str(raw_user["_id"])
+            return raw_user
+        except Exception as e:
+            logger.error(f"Error getting raw user by clerk_id {clerk_id}: {str(e)}")
+            raise
+
+    async def get_user_by_clerk_id(self, clerk_id: str) -> Optional[UserProfile]:
+        """Get a user by their Clerk ID with normalized role"""
+        try:
+            raw_user = await self.get_user_by_clerk_id_raw(clerk_id)
+            if not raw_user:
+                return None
+            
+            # Normalize role before Pydantic validation
+            if 'role' in raw_user:
+                raw_user['role'] = self._normalize_role(raw_user['role'])
+            
+            return UserProfile(**raw_user)
+        except Exception as e:
+            logger.error(f"Error getting user by clerk_id {clerk_id}: {str(e)}")
+            raise
+
+    async def get_user_by_id(self, user_id: PyObjectId) -> UserProfile:
+        """Get a user by their ID with normalized role"""
+        try:
+            raw_user = await self.collection.find_one({"_id": ObjectId(user_id)})
+            if not raw_user:
+                raise HTTPException(status_code=404, detail="User not found")
+            
+            # Normalize role before Pydantic validation
+            if 'role' in raw_user:
+                raw_user['role'] = self._normalize_role(raw_user['role'])
+                
+            return UserProfile(**raw_user)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error getting user by ID {user_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    async def update_user(self, clerk_id: str, update_data: Dict) -> Optional[UserProfile]:
+        """Update a user's profile with role normalization"""
+        try:
+            # Normalize role if present in update data
+            if 'role' in update_data:
+                update_data['role'] = self._normalize_role(update_data['role'])
+            
+            # Add updated timestamp
+            update_data["updated_at"] = datetime.utcnow()
+            
+            result = await self.collection.find_one_and_update(
+                {"clerk_id": clerk_id},
+                {"$set": update_data},
+                return_document=True
+            )
+            
+            if not result:
+                return None
+            
+            # Normalize role in result before creating UserProfile
+            if 'role' in result:
+                result['role'] = self._normalize_role(result['role'])
+                
+            return UserProfile(**result)
+            
+        except Exception as e:
+            logger.error(f"Error updating user {clerk_id}: {str(e)}")
+            raise
+
     async def update_user_profile(
-    self,
-    clerk_id: str,
-    update_data: dict,
-    role: Optional[Role] = None
-) -> UserProfile:
+        self,
+        clerk_id: str,
+        update_data: dict,
+        role: Optional[Role] = None
+    ) -> UserProfile:
         
         existing_user = await self.collection.find_one({"clerk_id": clerk_id})
         if not existing_user:
             raise HTTPException(status_code=404, detail="User not found")
         
+        # Normalize existing role
+        existing_role_str = existing_user.get("role", "unassigned")
+        normalized_existing_role = self._normalize_role(existing_role_str)
+        
         # 2. Determine role (use existing if not provided)
-        current_role = Role(existing_user.get("role", Role.UNASSIGNED))
+        try:
+            current_role = Role(normalized_existing_role)
+        except ValueError:
+            current_role = Role.UNASSIGNED
+            
         if role and current_role != role:
             raise HTTPException(
                 status_code=400,
@@ -81,6 +197,10 @@ class UserCRUD:
             if k in allowed_fields
         }
         
+        # Normalize role if being updated
+        if 'role' in filtered_updates:
+            filtered_updates['role'] = self._normalize_role(filtered_updates['role'])
+        
         # Add to update document
         update_doc["$set"].update(filtered_updates)
         
@@ -96,34 +216,6 @@ class UserCRUD:
                 detail="No changes made or data validation failed"
             )
         
-        return await self.get_user_by_clerk_id(clerk_id)
-
-    async def get_user_by_id(self, user_id: PyObjectId) -> UserProfile:
-        """Get a user by their ID"""
-        user = await self.collection.find_one({"_id": ObjectId(user_id)})
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        return UserProfile(**user)
-
-    async def get_user_by_clerk_id(self, clerk_id: str) -> UserProfile:
-        """Get a user by their Clerk ID"""
-        user = await self.collection.find_one({"clerk_id": clerk_id})
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        return UserProfile(**user)
-
-    async def update_user(self, clerk_id: str, update_data: Dict) -> UserProfile:
-        """Update a user's profile"""
-        update_data["updated_at"] = datetime.utcnow()
-        
-        result = await self.collection.update_one(
-            {"clerk_id": clerk_id},
-            {"$set": update_data}
-        )
-        
-        if result.modified_count == 0:
-            raise HTTPException(status_code=404, detail="User not found or no changes made")
-            
         return await self.get_user_by_clerk_id(clerk_id)
 
     async def delete_user(self, clerk_id: str) -> bool:
@@ -271,20 +363,47 @@ class UserCRUD:
             raise HTTPException(status_code=404, detail="User not found or no changes made")
             
         return await self.get_user_by_clerk_id(clerk_id)
+
+# Helper function to normalize role in the update_user_profile_from_resume function
+def normalize_role_for_update(role: str) -> str:
+    """Normalize role for the update function"""
+    if not role:
+        return "job_seeker"
     
+    normalized = role.lower().replace(' ', '_').replace('-', '_')
+    
+    role_mappings = {
+        'jobseeker': 'job_seeker',
+        'job-seeker': 'job_seeker',
+        'job seeker': 'job_seeker',
+        'seeker': 'job_seeker',
+        'candidate': 'job_seeker',
+        'recruiter': 'employer',
+        'hr': 'employer',
+        'company': 'employer',
+        'hiring_manager': 'employer',
+        'hiring-manager': 'employer',
+        'hiring manager': 'employer'
+    }
+    
+    return role_mappings.get(normalized, normalized)
+
 async def update_user_profile_from_resume(
     crud: UserCRUD,
     clerk_id: str,
     resume_url: str,
     parsed_resume: Dict,
-    user_role:str = "job_seeker",
+    user_role: str = "job_seeker",
 ):
     """
-    Updated version with proper date parsing
+    Updated version with proper date parsing and role normalization
     """
+    # FIXED: Normalize the role first
+    normalized_role = normalize_role_for_update(user_role)
+    
     update_data = {
         "updated_at": datetime.utcnow(),
-        "role": user_role,
+        "role": normalized_role,  # Use normalized role
     }
     
     discarded_data = {
@@ -292,7 +411,9 @@ async def update_user_profile_from_resume(
         "unused_experience_fields": [],
         "unused_education_fields": []
     }
-    if user_role == Role.EMPLOYER:
+    
+    # FIXED: Use normalized role for comparison
+    if normalized_role == "employer":
         # Employer-specific fields
         update_data["company_name"] = parsed_resume.get(
             "Current Company", 
@@ -309,6 +430,14 @@ async def update_user_profile_from_resume(
         if len(names) > 1:
             update_data["last_name"] = names[1]
         discarded_data["unused_fields"].append("Full Name")
+
+    if "First Name" in parsed_resume:
+        update_data["first_name"] = parsed_resume["First Name"]
+        discarded_data["unused_fields"].append("First Name")
+        
+    if "Last Name" in parsed_resume:
+        update_data["last_name"] = parsed_resume["Last Name"]
+        discarded_data["unused_fields"].append("Last Name")
 
     if "Email" in parsed_resume:
         update_data["email"] = parsed_resume["Email"]
@@ -363,9 +492,11 @@ async def update_user_profile_from_resume(
                 discarded_data["unused_experience_fields"].extend(unused_exp_fields)
         
         update_data["experience"] = experiences
-        update_data["resume"] = {"resume_url": resume_url}
-
         discarded_data["unused_fields"].append("Experience")
+
+    # Add resume URL
+    if resume_url:
+        update_data["resume"] = {"resume_url": resume_url}
 
     # 4. Education - with proper year handling
     if "Education" in parsed_resume:
@@ -397,22 +528,28 @@ async def update_user_profile_from_resume(
         update_data["education"] = educations
         discarded_data["unused_fields"].append("Education")
 
+    # FIXED: Use normalized role for required fields check
     required_fields = {
         "job_seeker": ["first_name", "last_name", "phone"],
         "employer": ["company_name", "phone"]
     }
     
-    for field in required_fields.get(user_role, []):
+    for field in required_fields.get(normalized_role, []):
         if field not in update_data:
             update_data[field] = "Unknown"  # Provide default value
 
-    # Update the profile
-    updated_profile = await crud.update_user(clerk_id, update_data)
-    
-    return {
-        "updated_profile": updated_profile,
-        "discarded_data": discarded_data
-    }
+    try:
+        # Update the profile
+        updated_profile = await crud.update_user(clerk_id, update_data)
+        
+        return {
+            "updated_profile": updated_profile,
+            "discarded_data": discarded_data,
+            "normalized_role": normalized_role  # Include for debugging
+        }
+    except Exception as e:
+        logger.error(f"Error updating user profile from resume: {str(e)}")
+        raise
 
 def parse_date(date_str: str) -> Optional[datetime]:
     """Parse various date formats to datetime"""

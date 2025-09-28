@@ -36,6 +36,44 @@ cloudinary.config(
 
 router = APIRouter()
 
+# ADDED: Role normalization function
+def normalize_role(role: str) -> str:
+    """
+    Normalize role values to match the expected enum values
+    """
+    if not role:
+        return "job_seeker"
+    
+    # Convert to lowercase and replace spaces with underscores
+    normalized = role.lower().replace(' ', '_').replace('-', '_')
+    
+    # Handle common variations
+    role_mappings = {
+        'jobseeker': 'job_seeker',
+        'job-seeker': 'job_seeker',
+        'job seeker': 'job_seeker',
+        'seeker': 'job_seeker',
+        'candidate': 'job_seeker',
+        'recruiter': 'employer',
+        'hr': 'employer',
+        'company': 'employer',
+        'hiring_manager': 'employer',
+        'hiring-manager': 'employer',
+        'hiring manager': 'employer'
+    }
+    
+    return role_mappings.get(normalized, normalized)
+
+# ADDED: Function to normalize user data from database
+def normalize_user_data(user_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normalize user data from database before Pydantic validation
+    """
+    if user_data and 'role' in user_data:
+        user_data['role'] = normalize_role(user_data['role'])
+    
+    return user_data
+
 # Dependency to get user CRUD instance
 async def get_user_crud():
     yield UserCRUD(db.users)
@@ -242,6 +280,9 @@ async def upload_cloud(
             user_crud = UserCRUD(db.users)
             resume_url = upload_result["secure_url"]
             
+            # FIXED: Normalize user_role before processing
+            normalized_user_role = normalize_role(user_role)
+            
             # Update user profile with resume data
             try:
                 updated_profile = await update_user_profile_from_resume(
@@ -249,7 +290,7 @@ async def upload_cloud(
                     clerk_id, 
                     resume_url, 
                     resume_data, 
-                    user_role
+                    normalized_user_role  # Use normalized role
                 )
                 logger.info("User profile updated successfully")
             except Exception as profile_error:
@@ -272,7 +313,8 @@ async def upload_cloud(
                     "debug_info": {
                         "signature_params": params,
                         "generated_signature": signature,
-                        "public_id": public_id
+                        "public_id": public_id,
+                        "normalized_role": normalized_user_role  # Include for debugging
                     }
                 },
             )
@@ -323,7 +365,6 @@ async def upload_cloud(
             detail=f"Internal server error during upload: {str(e)}"
         )
 
-# [REST OF THE ENDPOINTS REMAIN THE SAME]
 @router.get("/me")
 async def get_current_user(
     clerk_id: str = Query(..., description="Authenticated user's Clerk ID"),
@@ -341,12 +382,19 @@ async def get_current_user(
                 detail="clerk_id is required"
             )
 
-        user = await crud.get_user_by_clerk_id(clerk_id)
-        if not user:
+        # FIXED: Get raw user data and normalize before Pydantic validation
+        raw_user = await crud.get_user_by_clerk_id_raw(clerk_id)  # New method needed
+        if not raw_user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"User profile not found for clerk_id: {clerk_id}"
             )
+        
+        # Normalize the user data
+        normalized_user_data = normalize_user_data(raw_user)
+        
+        # Convert to UserProfile with normalized data
+        user = UserProfile(**normalized_user_data)
         
         logger.info(f"Profile fetched successfully for user: {clerk_id}")
         return user
@@ -387,6 +435,10 @@ async def update_basic_profile(
         # Remove clerk_id from update_data if present to avoid conflicts
         update_data.pop('clerk_id', None)
         
+        # FIXED: Normalize role if present in update data
+        if 'role' in update_data:
+            update_data['role'] = normalize_role(update_data['role'])
+        
         user = await crud.update_user(clerk_id, update_data)
         if not user:
             raise HTTPException(
@@ -423,5 +475,3 @@ async def health_check():
             os.getenv("CLOUDINARY_API_SECRET")
         )
     }
-
-# [Include all your other endpoints here - they remain unchanged]
