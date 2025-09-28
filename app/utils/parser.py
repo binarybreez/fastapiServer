@@ -2,11 +2,14 @@ import PyPDF2
 import re
 from datetime import datetime
 import json
-from google import genai
+import google.generativeai as genai
 from dotenv import load_dotenv
+import os
 
-client = genai.Client()
 load_dotenv()
+
+# Configure Gemini API
+genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
 
 
 async def parse_resume(file_path: str):
@@ -48,7 +51,7 @@ def clean_resume_text(text: str) -> str:
     # Normalize whitespace but keep line breaks
     text = re.sub(r"[ \t]+", " ", text)
     # Normalize bullet points
-    text = re.sub(r"[•*\-]\s*", " • ", text)
+    text = re.sub(r"[•*\-🔹]\s*", " • ", text)
     # Remove extra empty lines
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
@@ -125,7 +128,9 @@ Now extract the data from the following resume:
 \"\"\"
 """
     
-    response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+    # Use correct Gemini model
+    model = genai.GenerativeModel('gemini-2.0-flash-exp')
+    response = model.generate_content(prompt)
     cleaned_response = clean_gemini_response(response.text)
     return cleaned_response
 
@@ -137,6 +142,11 @@ def clean_gemini_response(raw_result):
     
     # Step 2: Remove any leading/trailing whitespace
     cleaned = cleaned.strip()
+    
+    # Step 3: Try to find JSON object if response has extra text
+    json_match = re.search(r'\{.*\}', cleaned, re.DOTALL)
+    if json_match:
+        cleaned = json_match.group(0)
     
     try:
         parsed_json = json.loads(cleaned)
@@ -151,19 +161,45 @@ def clean_gemini_response(raw_result):
             return parsed_json
         except Exception as fallback_error:
             print(f"Fallback parsing failed: {fallback_error}")
-            # Return a default structure if parsing fails completely
-            return {
-                "Full Name": "Unknown",
-                "Email": None,
-                "Phone Number": None,
-                "Skills": [],
-                "Technical Skills": [],
-                "Soft Skills": [],
-                "Experience": [],
-                "Education": [],
-                "Certifications": [],
-                "Projects": []
-            }
+            # Try fixing common JSON issues
+            try:
+                fixed_json = fix_json_issues(cleaned)
+                parsed_json = json.loads(fixed_json)
+                return parsed_json
+            except Exception as final_error:
+                print(f"Final parsing failed: {final_error}")
+                # Return a default structure if parsing fails completely
+                return {
+                    "First Name": None,
+                    "Last Name": None,
+                    "Full Name": "Unknown",
+                    "Email": None,
+                    "Phone Number": None,
+                    "Location": None,
+                    "Willing to relocate": False,
+                    "LinkedIn Profile": None,
+                    "GitHub Profile": None,
+                    "Portfolio URL": None,
+                    "Skills": [],
+                    "Technical Skills": [],
+                    "Soft Skills": [],
+                    "Experience": [],
+                    "Education": [],
+                    "Certifications": [],
+                    "Projects": []
+                }
+
+
+def fix_json_issues(json_string: str) -> str:
+    """Fix common JSON formatting issues"""
+    # Remove trailing commas before closing braces/brackets
+    json_string = re.sub(r',\s*([}\]])', r'\1', json_string)
+    
+    # Fix single quotes to double quotes (but be careful with contractions)
+    json_string = re.sub(r"'([^']*)':", r'"\1":', json_string)
+    json_string = re.sub(r':\s*\'([^\']*)\'', r': "\1"', json_string)
+    
+    return json_string
 
 
 async def extract_job_data(job_data: str):
@@ -208,5 +244,7 @@ Here is the employer's job description:
 
 Now extract and return the information as a JSON object using the format above.
 """
-    response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+    
+    model = genai.GenerativeModel('gemini-2.0-flash-exp')
+    response = model.generate_content(prompt)
     return clean_gemini_response(response.text)
